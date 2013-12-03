@@ -45,9 +45,28 @@ from kivy.factory import Factory
 from kivy.animation import Animation
 from kivy.uix.stencilview import StencilView
 from kivy.uix.relativelayout import RelativeLayout
+from kivy.uix.widget import Widget
+from kivy.uix.button import Button
 from kivy.properties import BooleanProperty, OptionProperty, AliasProperty, \
                             NumericProperty, ListProperty, ObjectProperty,\
                             StringProperty
+from kivy.lang import Builder
+
+Builder.load_string('''
+<Carousel>
+    RelativeLayout:
+        size_hint: None, None
+        size: content.size
+        GridLayout:
+            id: content
+            cols: 1 if root.direction[0] in ('t', 'b') else None
+            rows: 1 if not self.cols else None
+            size_hint: (1, None) if self.cols else (None, 1)
+            width: root.width if self.cols else self.minimum_width
+            height: root.height if self.rows else self.minimum_height
+            #size_hint: None, None
+            #size: self.minimum_size
+''')
 
 
 class Carousel(StencilView):
@@ -292,6 +311,11 @@ class Carousel(StencilView):
         return slide.parent
 
     def _insert_visible_slides(self, _next_slide=None, _prev_slide=None):
+        try:
+            content = self.ids.content
+        except KeyError:
+            return
+
         get_slide_container = self.get_slide_container
 
         previous_slide = _prev_slide if _prev_slide else self.previous_slide
@@ -316,12 +340,18 @@ class Carousel(StencilView):
         for container in self.slides_container:
             super_remove(container)
 
-        if self._prev:
-            super(Carousel, self).add_widget(self._prev)
-        if self._next:
-            super(Carousel, self).add_widget(self._next)
-        if self._current:
-            super(Carousel, self).add_widget(self._current)
+        content.clear_widgets()
+        _opposite = bool(self.direction[0] in ('r', 'b'))
+        if not hasattr(self, '_widg_prev'):
+            self._widg_prev = Widget(size_hint=(None, None), size=self.size)
+            self.bind(size=self._widg_prev.setter('size'))
+        content.add_widget(self._prev if self._prev else
+                           self._widg_prev,
+                           index=2 if _opposite else 0)
+        content.add_widget(self._current, index=0 if _opposite else 1)
+        content.add_widget(self._next if self._next else
+                           Widget(size_hint=(None, None), size=self.size),
+                           index=0 if _opposite else 2)
 
     def _position_visible_slides(self, *args):
         slides, index = self.slides, self.index
@@ -341,47 +371,14 @@ class Carousel(StencilView):
             xoff = x + _offset
             x_prev = {'l': xoff + width, 'r': xoff - width}
             x_next = {'l': xoff - width, 'r': xoff + width}
-            if _prev:
-                _prev.pos = (x_prev[direction[0]], y)
-            elif _loop and _next and index == 0:
-                # if first slide is moving to right with direction set to right
-                # or toward left with direction set to left
-                if ((_offset > 0 and direction[0] == 'r') or
-                    (_offset < 0 and direction[0] == 'l')):
-                    # put last_slide before first slide
-                    last_slide.pos = (x_prev[direction[0]], y)
-                    skip_next = True
             if _current:
-                _current.pos = (xoff, y)
-            if skip_next:
-                return
-            if _next:
-                _next.pos = (x_next[direction[0]], y)
-            elif _loop and _prev and index == no_of_slides:
-                if ((_offset < 0 and direction[0] == 'r') or
-                    (_offset > 0 and direction[0] == 'l')):
-                    first_slide.pos = (x_next[direction[0]], y)
+                self.ids.content.pos = xoff - self.width, y
         if direction[0] in ['t', 'b']:
             yoff = y + _offset
             y_prev = {'t': yoff - height, 'b': yoff + height}
             y_next = {'t': yoff + height, 'b': yoff - height}
-            if _prev:
-                _prev.pos = (x, y_prev[direction[0]])
-            elif _loop and _next and index == 0:
-                if ((_offset > 0 and direction[0] == 't') or
-                    (_offset < 0 and direction[0] == 'b')):
-                    last_slide.pos = (x, y_prev[direction[0]])
-                    skip_next = True
             if _current:
-                _current.pos = (x, yoff)
-            if skip_next:
-                return
-            if _next:
-                _next.pos = (x, y_next[direction[0]])
-            elif _loop and _prev and index == no_of_slides:
-                if ((_offset < 0 and direction[0] == 't') or
-                    (_offset > 0 and direction[0] == 'b')):
-                    first_slide.pos = (x, y_next[direction[0]])
+                self.ids.content.pos = (x, yoff - self.height)
 
     def on_size(self, *args):
         size = self.size
@@ -576,9 +573,14 @@ class Carousel(StencilView):
             return
 
     def add_widget(self, widget, index=0):
-        slide = RelativeLayout(size=self.size, x=self.x - self.width, y=self.y)
+        try:
+            content = self.ids.content
+        except KeyError:
+            super(Carousel, self).add_widget(widget, index)
+            return
+        slide = RelativeLayout(size_hint=(None, None), size=self.size)
         slide.add_widget(widget)
-        super(Carousel, self).add_widget(slide, index)
+        content.add_widget(slide, index)
         if index != 0:
             self.slides.insert(index, widget)
         else:
@@ -597,7 +599,7 @@ class Carousel(StencilView):
 
     def clear_widgets(self):
         for slide in self.slides[:]:
-            self.remove_widget(slide)
+            self.ids.content.remove_widget(slide)
         super(Carousel, self).clear_widgets()
 
 
@@ -608,8 +610,7 @@ if __name__ == '__main__':
     class Example1(App):
 
         def build(self):
-            carousel = Carousel(direction='left',
-                                loop=True)
+            carousel = Carousel(direction='right')
             for i in range(4):
                 src = "http://placehold.it/480x270.png&text=slide-%d&.png" % i
                 image = Factory.AsyncImage(source=src, allow_stretch=True)
